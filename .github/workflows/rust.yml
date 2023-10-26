@@ -1,5 +1,5 @@
 ---
-name: vue-3-ci-cd
+name: rust-ci
 
 on:
   push:
