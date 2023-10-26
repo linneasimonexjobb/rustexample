@@ -1,23 +1,73 @@
-name: Rust
+---
+name: vue-3-ci-cd
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches-ignore:
+      - main
+    paths-ignore:
+      - 'wiki/**'
 
 env:
   CARGO_TERM_COLOR: always
 
-jobs:
-  build:
+permissions:
+  contents: read # The workflow is read only
 
-    runs-on: ubuntu-latest
+# Ensures that only one workflow per branch/environment will be run
+concurrency:
+  group: ${{ github.head_ref || github.ref_name }} 
+  cancel-in-progress: true
+
+jobs:      
+  run_project:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30 #job times out after 30 mins
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
-    
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+    # Cache dependencies for faster workflow
+      - name: Cache dependencies
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-dependencies
+        with:
+          path: |
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            target
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Linting
+        run: cargo clippy
+      
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Retrieve unit test coverage
+        run: |
+          cargo install cargo-llvm-cov
+          cargo llvm-cov --json --output-path cov.json
+          COVERAGE_VAR=$(jq -r '.data[0].files[0].summary.lines.percent' < cov.json)
+          if [[ $COVERAGE_VAR -lt 80 ]]; then  # Adjust threshold as needed
+            echo "::warning::Coverage below threshold (${COVERAGE_VAR}). \
+            Please improve test coverage." >> $GITHUB_STEP_SUMMARY 
+          else
+            echo "$COVERAGE_VAR % line coverage"
+          fi
+
+          
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: target
+          path: target
+
